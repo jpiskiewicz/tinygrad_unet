@@ -17,21 +17,20 @@ def copy_weights_block(torch_block, tg_block):
     }
     for tg, tc in keys_corresp.items():
         tg_field = getattr(tg_block, tg[0])[tg[1]]
-        if tc not in (1, 4):
-            tg_field.weight.assign(torch_block[tc].weight.cpu().numpy())
-            tg_field.bias.assign(torch_block[tc].bias.cpu().numpy())
+        tg_field.weight.assign(torch_block[tc].weight.cpu().numpy())
+        tg_field.bias.assign(torch_block[tc].bias.cpu().numpy())
 
-            assert(np.all(tg_field.weight.numpy() == torch_block[tc].weight.cpu().numpy()))
-            assert(np.all(tg_field.bias.numpy() == torch_block[tc].bias.cpu().numpy()))
+        assert(np.all(tg_field.weight.numpy() == torch_block[tc].weight.cpu().numpy()))
+        assert(np.all(tg_field.bias.numpy() == torch_block[tc].bias.cpu().numpy()))
 
-        # try:
-        #     tg_field.weight.assign(torch_block[tc].running_mean.cpu().numpy())
-        #     tg_field.bias.assign(torch_block[tc].running_var.cpu().numpy())
+        try:
+            tg_field.running_mean.assign(torch_block[tc].running_mean.cpu().numpy())
+            tg_field.running_var.assign(torch_block[tc].running_var.cpu().numpy())
 
-        #     assert(np.all(tg_field.weight == torch_block[tc].running_mean.cpu().numpy()))
-        #     assert(np.all(tg_field.bias == torch_block[tc].running_var.cpu().numpy()))
-        # except AttributeError as err:
-        #     print(err)
+            assert(np.all(tg_field.running_mean.numpy() == torch_block[tc].running_mean.cpu().numpy()))
+            assert(np.all(tg_field.running_var.numpy() == torch_block[tc].running_var.cpu().numpy()))
+        except AttributeError as err:
+            print(err)
 
 
 

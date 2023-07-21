@@ -6,6 +6,46 @@ import numpy as np
 SIZE = 48
 
 
+class BatchNorm3d:
+  def __init__(self, sz, eps=1e-5, affine=True, track_running_stats=True, momentum=0.1):
+    self.eps, self.track_running_stats, self.momentum = eps, track_running_stats, momentum
+
+    if affine: self.weight, self.bias = Tensor.ones(sz), Tensor.zeros(sz)
+    else: self.weight, self.bias = None, None
+
+    self.running_mean, self.running_var = Tensor.zeros(sz, requires_grad=False), Tensor.ones(sz, requires_grad=False)
+    self.num_batches_tracked = Tensor.zeros(1, requires_grad=False)
+
+  def __call__(self, x:Tensor):
+    print(f'{x.shape=}')
+    if Tensor.training:
+      # This requires two full memory accesses to x
+      # https://github.com/pytorch/pytorch/blob/c618dc13d2aa23625cb0d7ada694137532a4fa33/aten/src/ATen/native/cuda/Normalization.cuh
+      # There's "online" algorithms that fix this, like https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_Online_algorithm
+      batch_mean = x.mean(axis=(0,2,3))
+      y = (x - batch_mean.reshape(shape=[1, -1, 1, 1]))
+      batch_var = (y*y).mean(axis=(0,2,3))
+      batch_invstd = batch_var.add(self.eps).pow(-0.5)
+
+      # NOTE: wow, this is done all throughout training in most PyTorch models
+      if self.track_running_stats:
+        self.running_mean.assign((1 - self.momentum) * self.running_mean + self.momentum * batch_mean.detach())
+        self.running_var.assign((1 - self.momentum) * self.running_var + self.momentum * prod(y.shape)/(prod(y.shape) - y.shape[1]) * batch_var.detach() )
+        self.num_batches_tracked += 1
+    else:
+      batch_mean = self.running_mean
+      # NOTE: this can be precomputed for static inference. we expand it here so it fuses
+      batch_invstd = self.running_var.reshape(1, -1, 1, 1, 1).expand(x.shape).add(self.eps).rsqrt()
+
+    bn_init = (x - self.running_mean.reshape(1, -1, 1, 1, 1).expand(x.shape)) * batch_invstd
+    print(f'{bn_init.shape=}')
+    return self.weight.reshape(1, -1, 1, 1, 1).expand(x.shape) * bn_init + self.bias.reshape(1, -1, 1, 1, 1).expand(x.shape)
+
+    print(f'{batch_invstd.shape=}')
+    return x.batchnorm(self.weight, self.bias, batch_mean, batch_invstd)
+
+
+
 class DownsampleBlock:
     def __init__(self, in_channels, features, padding=1, kernel_size=5, stride=1, name="block"):
         self.conv1 = [
@@ -17,7 +57,7 @@ class DownsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            nn.InstanceNorm(features),
+            BatchNorm3d(features),
             Tensor.relu,
         ]
 
@@ -30,7 +70,7 @@ class DownsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            nn.InstanceNorm(features),
+            BatchNorm3d(features),
             Tensor.relu,
         ]
 
@@ -53,7 +93,7 @@ class UpsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            nn.InstanceNorm(features),
+            BatchNorm3d(features),
             Tensor.relu,
         ]
 
@@ -66,7 +106,7 @@ class UpsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            nn.InstanceNorm(features),
+            BatchNorm3d(features),
             Tensor.relu,
         ]
 
@@ -174,6 +214,7 @@ class Unet3D:
 
 
 if __name__ == '__main__':
+    Tensor.training = False
     arr = np.random.randn(1, 1, SIZE, SIZE, SIZE)
     arr = Tensor(arr.astype(np.float32))
     m = Unet3D()
