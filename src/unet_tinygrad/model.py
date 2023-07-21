@@ -17,7 +17,6 @@ class BatchNorm3d:
     self.num_batches_tracked = Tensor.zeros(1, requires_grad=False)
 
   def __call__(self, x:Tensor):
-    print(f'{x.shape=}')
     if Tensor.training:
       # This requires two full memory accesses to x
       # https://github.com/pytorch/pytorch/blob/c618dc13d2aa23625cb0d7ada694137532a4fa33/aten/src/ATen/native/cuda/Normalization.cuh
@@ -38,11 +37,8 @@ class BatchNorm3d:
       batch_invstd = self.running_var.reshape(1, -1, 1, 1, 1).expand(x.shape).add(self.eps).rsqrt()
 
     bn_init = (x - self.running_mean.reshape(1, -1, 1, 1, 1).expand(x.shape)) * batch_invstd
-    print(f'{bn_init.shape=}')
     return self.weight.reshape(1, -1, 1, 1, 1).expand(x.shape) * bn_init + self.bias.reshape(1, -1, 1, 1, 1).expand(x.shape)
 
-    print(f'{batch_invstd.shape=}')
-    return x.batchnorm(self.weight, self.bias, batch_mean, batch_invstd)
 
 
 
@@ -73,10 +69,6 @@ class DownsampleBlock:
             BatchNorm3d(features),
             Tensor.relu,
         ]
-
-        print(in_channels, features)
-        print(self.conv1[0].kernel_size, self.conv1[0].padding, self.conv1[0].stride)
-        print(self.conv2[0].kernel_size, self.conv2[0].padding, self.conv2[0].stride)
 
     def __call__(self, x):
         return x.sequential(self.conv1).sequential(self.conv2)
@@ -109,10 +101,6 @@ class UpsampleBlock:
             BatchNorm3d(features),
             Tensor.relu,
         ]
-
-        print(in_channels, features)
-        print(self.conv1[0].kernel_size, self.conv1[0].padding, self.conv1[0].stride)
-        print(self.conv2[0].kernel_size, self.conv2[0].padding, self.conv2[0].stride)
 
     def __call__(self, x):
         return x.sequential(self.conv1).sequential(self.conv2)
