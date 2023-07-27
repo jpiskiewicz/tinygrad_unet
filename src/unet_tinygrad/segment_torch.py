@@ -260,6 +260,7 @@ def main():
         dev = torch.device(args.device)
     else:
         dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    print(f"{dev}")
     nii_data = nb.load(str(input_file))
     image = nii_data.get_fdata()
     mean = 0.0

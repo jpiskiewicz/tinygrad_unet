@@ -2,7 +2,7 @@ from pathlib import Path
 from tinygrad import nn
 from tinygrad.tensor import Tensor
 import numpy as np
-from math import prod
+from tinygrad.state import safe_save, safe_load, get_state_dict, load_state_dict
 
 SIZE = 48
 
@@ -184,7 +184,11 @@ class Unet3D:
 
 
 if __name__ == '__main__':
+    print('here')
+    Tensor.training = False
     arr = np.random.randn(1, 1, SIZE, SIZE, SIZE)
     arr = Tensor(arr.astype(np.float32))
     m = Unet3D()
+    state_dict = safe_load("brain_mri_t1.safetensors")
+    load_state_dict(m, state_dict)
     m(arr)

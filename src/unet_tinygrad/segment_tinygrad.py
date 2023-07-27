@@ -9,13 +9,15 @@ import nibabel as nb
 import numpy as np
 import torch
 import vtk
+from tinygrad.jit import TinyJit
+from tinygrad.state import (get_state_dict, load_state_dict, safe_load,
+                            safe_save)
+from tinygrad.tensor import Tensor
 from tqdm import tqdm
 from vtk.util import numpy_support
 
 from constants import BATCH_SIZE, OVERLAP, SIZE
 from model import Unet3D
-from tinygrad.state import safe_save, safe_load, get_state_dict, load_state_dict
-from tinygrad.tensor import Tensor
 
 # set training flag to false
 Tensor.training = False
@@ -57,24 +59,10 @@ parser.add_argument(
     help="Which device to use: cpu, cuda, xpu, mkldnn, opengl, opencl, ideep, hip, msnpu, xla, vulkan",
     dest="device",
 )
+parser.add_argument("--ww", default=None, type=int, dest="window_width")
+parser.add_argument("--wl", default=None, type=int, dest="window_level")
 parser.add_argument(
-    "--ww",
-    default=None,
-    type=int,
-    dest="window_width"
-)
-parser.add_argument(
-    "--wl",
-    default=None,
-    type=int,
-    dest="window_level"
-)
-parser.add_argument(
-    "-b",
-    "--batch_size",
-    default=BATCH_SIZE,
-    type=int,
-    dest="batch_size"
+    "-b", "--batch_size", default=BATCH_SIZE, type=int, dest="batch_size"
 )
 
 
@@ -148,10 +136,10 @@ def brain_segment(
     dev: torch.device,
     mean: float,
     std: float,
-    batch_size: int = BATCH_SIZE
+    batch_size: int = BATCH_SIZE,
 ) -> np.ndarray:
     dz, dy, dx = image.shape
-    image = image_normalize(image, 0.0, 1.0, output_dtype=np.float32)
+    image = image_normalize(image, 0.0, 1.0, output_dtype=np.float16)
     padded_image = pad_image(image, SIZE)
     padded_image = (padded_image - mean) / std
     probability_array = np.zeros_like(padded_image, dtype=np.float32)
@@ -161,13 +149,9 @@ def brain_segment(
     for completion, patches, indexes in gen_patches(
         padded_image, SIZE, OVERLAP, batch_size
     ):
-        pred = (
-            model(
-                Tensor(patches.reshape(-1, 1, SIZE, SIZE, SIZE))
-            )
-            .cpu()
-            .numpy()
-        )
+        pred = model(
+            Tensor(patches.reshape(-1, 1, SIZE, SIZE, SIZE), requires_grad=False)
+        ).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
             sums[iz:ez, iy:ey, ix:ex] += 1
@@ -176,6 +160,13 @@ def brain_segment(
     pbar.close()
     probability_array[:dz, :dy, :dx] /= sums[:dz, :dy, :dx]
     return np.array(probability_array[:dz, :dy, :dx])
+
+
+def do_jit(net):
+    @TinyJit
+    def jit(x):
+        return net(x).realize()
+    return jit
 
 
 def to_vtk(
@@ -272,14 +263,17 @@ def main():
     model = Unet3D()
     state_dict = safe_load(weights_file)
     load_state_dict(model, state_dict)
-    print(f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}")
+    print(
+        f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}"
+    )
 
     if args.window_width is not None and args.window_level is not None:
         image = get_LUT_value_255(image, args.window_width, args.window_level)
         print("ww wl", image.min(), image.max())
 
-    #probability_array = brain_segment(image, model, dev, 0.0, 1.0)
-    probability_array = brain_segment(image, model, dev, mean, std, args.batch_size)
+    # probability_array = brain_segment(image, model, dev, 0.0, 1.0)
+    model_jit = do_jit(model)
+    probability_array = brain_segment(image, model_jit, dev, mean, std, args.batch_size)
     image_save(probability_array, str(output_file))
 
 
