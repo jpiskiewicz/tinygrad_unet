@@ -139,7 +139,7 @@ def brain_segment(
     batch_size: int = BATCH_SIZE,
 ) -> np.ndarray:
     dz, dy, dx = image.shape
-    image = image_normalize(image, 0.0, 1.0, output_dtype=np.float16)
+    image = image_normalize(image, 0.0, 1.0, output_dtype=np.float32)
     padded_image = pad_image(image, SIZE)
     padded_image = (padded_image - mean) / std
     probability_array = np.zeros_like(padded_image, dtype=np.float32)
