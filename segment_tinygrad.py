@@ -27,11 +27,11 @@ parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFo
 parser.add_argument(
     "-w",
     "--weights",
+    default="brain_mri_t1.safetensors",
     type=pathlib.Path,
     metavar="path",
     help="Weight path",
     dest="weights",
-    required=True,
 )
 parser.add_argument(
     "-i",
