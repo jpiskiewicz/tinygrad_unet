@@ -1,0 +1,7 @@
+git+https://github.com/tinygrad/tinygrad.git
+vtk
+nibabel
+wgpu
+llvmlite
+torch
+pycuda

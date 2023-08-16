@@ -283,6 +283,7 @@ def main():
     print(f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}")
     model = model.to(dev)
     model.eval()
+    # model = torch.compile(model)
 
     if args.window_width is not None and args.window_level is not None:
         image = get_LUT_value_255(image, args.window_width, args.window_level)
