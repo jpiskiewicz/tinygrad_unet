@@ -2,7 +2,7 @@ from pathlib import Path
 from tinygrad import nn
 from tinygrad.tensor import Tensor
 import numpy as np
-from tinygrad.state import safe_save, safe_load, get_state_dict, load_state_dict
+from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_dict
 
 SIZE = 48
 

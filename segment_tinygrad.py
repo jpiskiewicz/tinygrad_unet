@@ -9,9 +9,8 @@ import nibabel as nb
 import numpy as np
 import torch
 import vtk
-from tinygrad.jit import TinyJit
-from tinygrad.state import (get_state_dict, load_state_dict, safe_load,
-                            safe_save)
+from tinygrad import Device, TinyJit, dtypes
+from tinygrad.nn.state import get_state_dict, load_state_dict, safe_load, safe_save
 from tinygrad.tensor import Tensor
 from tqdm import tqdm
 from vtk.util import numpy_support
@@ -21,6 +20,7 @@ from model import Unet3D
 
 # set training flag to false
 Tensor.training = False
+Tensor.no_grad = True
 
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -150,7 +150,11 @@ def brain_segment(
         padded_image, SIZE, OVERLAP, batch_size
     ):
         pred = model(
-            Tensor(patches.reshape(-1, 1, SIZE, SIZE, SIZE), requires_grad=False)
+            Tensor(
+                patches.reshape(-1, 1, SIZE, SIZE, SIZE),
+                device="GPU",
+                dtype=dtypes.float32,
+            )
         ).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
@@ -166,6 +170,7 @@ def do_jit(net):
     @TinyJit
     def jit(x):
         return net(x).realize()
+
     return jit
 
 
