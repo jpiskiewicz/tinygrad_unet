@@ -153,7 +153,7 @@ def brain_segment(
             Tensor(
                 patches.reshape(-1, 1, SIZE, SIZE, SIZE),
                 dtype=dtypes.float32,
-            ).to('CPU')
+            )
         ).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
@@ -273,7 +273,6 @@ def main():
         print("ww wl", image.min(), image.max())
 
     # probability_array = brain_segment(image, model, dev, 0.0, 1.0)
-    model.to('CPU')
     model_jit = do_jit(model)
     probability_array = brain_segment(image, model_jit, dev, mean, std, args.batch_size)
     image_save(probability_array, str(output_file))

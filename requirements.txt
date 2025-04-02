@@ -2,5 +2,5 @@ git+https://github.com/tinygrad/tinygrad.git
 vtk
 nibabel
 llvmlite
-torch
+# torch
 tqdm
