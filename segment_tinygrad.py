@@ -7,7 +7,6 @@ import typing
 
 import nibabel as nb
 import numpy as np
-import torch
 import vtk
 from tinygrad import Device, TinyJit, dtypes
 from tinygrad.nn.state import get_state_dict, load_state_dict, safe_load, safe_save
@@ -132,8 +131,8 @@ def pad_image(image: np.ndarray, patch_size: int = SIZE) -> np.ndarray:
 
 def brain_segment(
     image: np.ndarray,
-    model: torch.nn.Module,
-    dev: torch.device,
+    model: Unet3D,
+    dev,
     mean: float,
     std: float,
     batch_size: int = BATCH_SIZE,
@@ -145,6 +144,7 @@ def brain_segment(
     probability_array = np.zeros_like(padded_image, dtype=np.float32)
     sums = np.zeros_like(padded_image)
     pbar = tqdm()
+    print(list(Device.get_available_devices()))
     # segmenting by patches
     for completion, patches, indexes in gen_patches(
         padded_image, SIZE, OVERLAP, batch_size
@@ -152,9 +152,8 @@ def brain_segment(
         pred = model(
             Tensor(
                 patches.reshape(-1, 1, SIZE, SIZE, SIZE),
-                device="GPU",
                 dtype=dtypes.float32,
-            )
+            ).to('CPU')
         ).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
@@ -257,10 +256,7 @@ def main():
     input_file = args.input_file
     weights_file = args.weights
     output_file = args.output_file
-    if args.device:
-        dev = torch.device(args.device)
-    else:
-        dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    dev = 'cuda'
     nii_data = nb.load(str(input_file))
     image = nii_data.get_fdata()
     mean = 0.0
@@ -277,6 +273,7 @@ def main():
         print("ww wl", image.min(), image.max())
 
     # probability_array = brain_segment(image, model, dev, 0.0, 1.0)
+    model.to('CPU')
     model_jit = do_jit(model)
     probability_array = brain_segment(image, model_jit, dev, mean, std, args.batch_size)
     image_save(probability_array, str(output_file))

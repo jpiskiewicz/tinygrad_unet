@@ -3,6 +3,7 @@ from tinygrad import nn
 from tinygrad.tensor import Tensor
 import numpy as np
 from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_dict
+from tinygrad.nn.state import get_parameters
 
 SIZE = 48
 
@@ -35,7 +36,7 @@ class DownsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            BatchNorm3d(features),
+            nn.BatchNorm(features),
             Tensor.relu,
         ]
 
@@ -48,7 +49,7 @@ class DownsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            BatchNorm3d(features),
+            nn.BatchNorm(features),
             Tensor.relu,
         ]
 
@@ -67,7 +68,7 @@ class UpsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            BatchNorm3d(features),
+            nn.BatchNorm(features),
             Tensor.relu,
         ]
 
@@ -80,7 +81,7 @@ class UpsampleBlock:
                 stride=(stride, stride, stride),
                 bias=True,
             ),
-            BatchNorm3d(features),
+            nn.BatchNorm(features),
             Tensor.relu,
         ]
 
@@ -181,6 +182,13 @@ class Unet3D:
         sigmoid = conv.sigmoid()
 
         return sigmoid
+
+    def to(self, device: str="gpu"):
+        for p in get_parameters(self):
+            print(p, device)
+            print(p.to(device))
+
+
 
 
 if __name__ == '__main__':
