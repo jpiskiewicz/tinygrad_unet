@@ -7,6 +7,9 @@ requires-python = ">=3.12"
 dependencies = [
     "llvmlite>=0.44.0",
     "nibabel>=5.3.2",
+    "onnx>=1.17.0",
+    "onnxruntime>=1.21.0",
+    "onnxscript>=0.2.3",
     "tinygrad",
     "torch>=2.6.0",
     "tqdm>=4.67.1",

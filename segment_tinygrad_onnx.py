@@ -7,6 +7,7 @@ import typing
 
 import nibabel as nb
 import numpy as np
+import onnx
 import vtk
 from tinygrad import Device, dtypes
 from tinygrad.engine.jit import TinyJit
@@ -23,6 +24,7 @@ from vtk.util import numpy_support
 
 from constants import BATCH_SIZE, OVERLAP, SIZE
 from model import Unet3D
+from tinygrad_extra.onnx import OnnxRunner
 
 # set training flag to false
 Tensor.training = False
@@ -158,12 +160,12 @@ def brain_segment(
     ):
         with Tensor.test():
             pred = model(
-                Tensor(
-                    patches.reshape(-1, 1, SIZE, SIZE, SIZE),
-                    dtype=dtypes.float32,
-                    device=dev,
-                    requires_grad=False,
-                )
+                    Tensor(
+                        patches.reshape(-1, 1, SIZE, SIZE, SIZE),
+                        dtype=dtypes.float32,
+                        device=dev,
+                        requires_grad=False,
+                    )
             ).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
@@ -273,10 +275,12 @@ def main():
     image = nii_data.get_fdata()
     mean = 0.0
     std = 1.0
-    model = Unet3D()
-    state_dict = safe_load(weights_file)
-    model.to(device)
-    load_state_dict(model, state_dict)
+    onnx_model = onnx.load("weights.onnx")
+    model = OnnxRunner(onnx_model)
+    model_jit = TinyJit(lambda x: model({'input': x})['output'], prune=True, optimize=True)
+    # state_dict = safe_load(weights_file)
+    # model.to(device)
+    # load_state_dict(model, state_dict)
     print(
         f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}"
     )
@@ -286,8 +290,10 @@ def main():
         print("ww wl", image.min(), image.max())
 
     # probability_array = brain_segment(image, model, dev, 0.0, 1.0)
-    model_jit = do_jit(model)
-    probability_array = brain_segment(image, model_jit, device, mean, std, args.batch_size)
+    # model_jit = do_jit(model)
+    probability_array = brain_segment(
+        image, model_jit, device, mean, std, args.batch_size
+    )
     image_save(probability_array, str(output_file))
 
 
