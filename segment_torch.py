@@ -51,24 +51,10 @@ parser.add_argument(
     help="Which device to use: cpu, cuda, xpu, mkldnn, opengl, opencl, ideep, hip, msnpu, xla, vulkan",
     dest="device",
 )
+parser.add_argument("--ww", default=None, type=int, dest="window_width")
+parser.add_argument("--wl", default=None, type=int, dest="window_level")
 parser.add_argument(
-    "--ww",
-    default=None,
-    type=int,
-    dest="window_width"
-)
-parser.add_argument(
-    "--wl",
-    default=None,
-    type=int,
-    dest="window_level"
-)
-parser.add_argument(
-    "-b",
-    "--batch_size",
-    default=BATCH_SIZE,
-    type=int,
-    dest="batch_size"
+    "-b", "--batch_size", default=BATCH_SIZE, type=int, dest="batch_size"
 )
 
 
@@ -142,7 +128,7 @@ def brain_segment(
     dev: torch.device,
     mean: float,
     std: float,
-    batch_size: int = BATCH_SIZE
+    batch_size: int = BATCH_SIZE,
 ) -> np.ndarray:
     dz, dy, dx = image.shape
     image = image_normalize(image, 0.0, 1.0, output_dtype=np.float32)
@@ -156,13 +142,10 @@ def brain_segment(
         padded_image, SIZE, OVERLAP, batch_size
     ):
         with torch.no_grad():
-            pred = (
-                model(
-                    torch.from_numpy(patches.reshape(-1, 1, SIZE, SIZE, SIZE)).to(dev)
-                )
-                .cpu()
-                .numpy()
-            )
+            tensor_patches = torch.from_numpy(
+                patches.reshape(-1, 1, SIZE, SIZE, SIZE)
+            ).to(dev)
+            pred = model(tensor_patches).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
             sums[iz:ez, iy:ey, ix:ex] += 1
@@ -280,16 +263,21 @@ def main():
         model = checkpoint
         if isinstance(model, torch.nn.DataParallel):
             model = model.module
-    print(f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}")
-    model = model.to(dev)
+    print(
+        f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}"
+    )
+    model.to(dev)
     model.eval()
-    model = torch.compile(model)
+
+    print(f"{dev=}")
+    print(f"{model=}")
+    print(f'{model(torch.randn(1, 1, SIZE, SIZE, SIZE))}')
 
     if args.window_width is not None and args.window_level is not None:
         image = get_LUT_value_255(image, args.window_width, args.window_level)
         print("ww wl", image.min(), image.max())
 
-    #probability_array = brain_segment(image, model, dev, 0.0, 1.0)
+    # probability_array = brain_segment(image, model, dev, 0.0, 1.0)
     probability_array = brain_segment(image, model, dev, mean, std, args.batch_size)
     image_save(probability_array, str(output_file))
 

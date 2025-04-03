@@ -8,9 +8,15 @@ dependencies = [
     "llvmlite>=0.44.0",
     "nibabel>=5.3.2",
     "tinygrad",
+    "torch>=2.6.0",
     "tqdm>=4.67.1",
     "vtk>=9.4.2",
 ]
 
 [tool.uv.sources]
 tinygrad = { git = "https://github.com/tinygrad/tinygrad.git" }
+
+[dependency-groups]
+dev = [
+    "ipython>=9.0.2",
+]

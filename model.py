@@ -185,8 +185,7 @@ class Unet3D:
 
     def to(self, device: str="gpu"):
         for p in get_parameters(self):
-            print(p, device)
-            print(p.to(device))
+            p.to_(device)
 
 
 

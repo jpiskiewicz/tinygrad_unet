@@ -8,8 +8,15 @@ import typing
 import nibabel as nb
 import numpy as np
 import vtk
-from tinygrad import Device, TinyJit, dtypes
-from tinygrad.nn.state import get_state_dict, load_state_dict, safe_load, safe_save
+from tinygrad import Device, dtypes
+from tinygrad.engine.jit import TinyJit
+from tinygrad.nn.state import (
+    get_parameters,
+    get_state_dict,
+    load_state_dict,
+    safe_load,
+    safe_save,
+)
 from tinygrad.tensor import Tensor
 from tqdm import tqdm
 from vtk.util import numpy_support
@@ -153,6 +160,7 @@ def brain_segment(
             Tensor(
                 patches.reshape(-1, 1, SIZE, SIZE, SIZE),
                 dtype=dtypes.float32,
+                device=dev,
             )
         ).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
@@ -256,13 +264,14 @@ def main():
     input_file = args.input_file
     weights_file = args.weights
     output_file = args.output_file
-    dev = 'cuda'
+    device = args.device
     nii_data = nb.load(str(input_file))
     image = nii_data.get_fdata()
     mean = 0.0
     std = 1.0
     model = Unet3D()
     state_dict = safe_load(weights_file)
+    model.to(device)
     load_state_dict(model, state_dict)
     print(
         f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}"
@@ -274,7 +283,7 @@ def main():
 
     # probability_array = brain_segment(image, model, dev, 0.0, 1.0)
     model_jit = do_jit(model)
-    probability_array = brain_segment(image, model_jit, dev, mean, std, args.batch_size)
+    probability_array = brain_segment(image, model_jit, device, mean, std, args.batch_size)
     image_save(probability_array, str(output_file))
 
 
