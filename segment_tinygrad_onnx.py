@@ -35,7 +35,7 @@ parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFo
 parser.add_argument(
     "-w",
     "--weights",
-    default="brain_mri_t1.safetensors",
+    default="weights.onnx",
     type=pathlib.Path,
     metavar="path",
     help="Weight path",
@@ -148,6 +148,7 @@ def brain_segment(
 ) -> np.ndarray:
     dz, dy, dx = image.shape
     image = image_normalize(image, 0.0, 1.0, output_dtype=np.float32)
+    print(image.min(), image.max())
     padded_image = pad_image(image, SIZE)
     padded_image = (padded_image - mean) / std
     probability_array = np.zeros_like(padded_image, dtype=np.float32)
@@ -275,15 +276,17 @@ def main():
     image = nii_data.get_fdata()
     mean = 0.0
     std = 1.0
-    onnx_model = onnx.load("weights.onnx")
+    onnx_model = onnx.load(weights_file)
     model = OnnxRunner(onnx_model)
-    model_jit = TinyJit(lambda x: model({'input': x})['output'], prune=True, optimize=True)
+    model_jit = TinyJit(lambda x: model({'input': x})['output'])
     # state_dict = safe_load(weights_file)
     # model.to(device)
     # load_state_dict(model, state_dict)
     print(
         f"mean={mean}, std={std}, {image.min()=}, {image.max()=}, {args.window_width=}, {args.window_level=}"
     )
+
+    print(type(model), dir(model))
 
     if args.window_width is not None and args.window_level is not None:
         image = get_LUT_value_255(image, args.window_width, args.window_level)

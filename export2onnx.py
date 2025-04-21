@@ -37,29 +37,28 @@ def main():
         torch_model.load_state_dict(parallel_model.module.state_dict())
     torch_model.eval()
 
-    example_input = torch.randn(1, 1, SIZE, SIZE, SIZE)
-    torch.onnx.export(
-        torch_model,
-        example_input,
-        args.output,
-        verbose=True,
-        optimize=True,
-        opset_version=11,
-        do_constant_folding=True,
-        input_names=[
-            "input",
-        ],
-        output_names=[
-            "output",
-        ],
-        dynamic_axes={
-            "input": {0: "batch_size"},
-            "output": {0: "batch_size"},
-        },
-    )
-    model_onnx = onnx.load(args.output)
-    model_onnx = onnx.shape_inference.infer_shapes(model_onnx)
-    onnx.save(model_onnx, args.output)
+    with torch.no_grad():
+        example_input = torch.randn(1, 1, SIZE, SIZE, SIZE)
+        torch.onnx.export(
+            torch_model,
+            example_input,
+            args.output,
+            verbose=True,
+            optimize=True,
+            opset_version=11,
+            do_constant_folding=True,
+            input_names=[
+                "input",
+            ],
+            output_names=[
+                "output",
+            ],
+            dynamic_axes={
+                "input": {0: "batch_size"},
+                "output": {0: "batch_size"},
+            },
+        )
+
 
 
 if __name__ == "__main__":

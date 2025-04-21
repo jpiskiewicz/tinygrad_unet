@@ -847,7 +847,7 @@ wheels = [
 [[package]]
 name = "tinygrad"
 version = "0.10.2"
-source = { git = "https://github.com/tinygrad/tinygrad.git#d96b4983ac988c4403b6332f0b27f29abb01ab34" }
+source = { git = "https://github.com/tinygrad/tinygrad.git#e8910540f6d5693d1b44c14b2b9a3ef09f9608f4" }
 
 [[package]]
 name = "tinygrad-unet"

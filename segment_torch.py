@@ -145,7 +145,7 @@ def brain_segment(
             tensor_patches = torch.from_numpy(
                 patches.reshape(-1, 1, SIZE, SIZE, SIZE)
             ).to(dev)
-            pred = model(tensor_patches).numpy()
+            pred = model(tensor_patches).cpu().numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
             sums[iz:ez, iy:ey, ix:ex] += 1
@@ -269,9 +269,9 @@ def main():
     model.to(dev)
     model.eval()
 
-    print(f"{dev=}")
-    print(f"{model=}")
-    print(f'{model(torch.randn(1, 1, SIZE, SIZE, SIZE))}')
+    # print(f"{dev=}")
+    # print(f"{model=}")
+    # print(f'{model(torch.randn(1, 1, SIZE, SIZE, SIZE))}')
 
     if args.window_width is not None and args.window_level is not None:
         image = get_LUT_value_255(image, args.window_width, args.window_level)
