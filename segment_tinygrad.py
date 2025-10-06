@@ -1,21 +1,17 @@
+#!/usr/bin/env python3
+
 import argparse
 import itertools
 import pathlib
-import sys
-import time
 import typing
 
 import nibabel as nb
 import numpy as np
-import vtk
 from tinygrad import Device, dtypes
 from tinygrad.engine.jit import TinyJit
 from tinygrad.nn.state import (
-    get_parameters,
-    get_state_dict,
     load_state_dict,
     safe_load,
-    safe_save,
 )
 from tinygrad.tensor import Tensor
 from tqdm import tqdm
@@ -24,9 +20,11 @@ from vtk.util import numpy_support
 from constants import BATCH_SIZE, OVERLAP, SIZE
 from model import Unet3D
 
+# # https://github.com/nipy/nibabel/issues/626#issuecomment-386338532
+# nb.Nifti1Header.quaternion_threshold = -1e-06
+
 # set training flag to false
 Tensor.training = False
-Tensor.no_grad = True
 
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -51,7 +49,7 @@ parser.add_argument(
 parser.add_argument(
     "-o",
     "--output",
-    default="output.vti",
+    default="output.nii",
     type=pathlib.Path,
     metavar="path",
     help="VTI output file",
@@ -60,7 +58,7 @@ parser.add_argument(
 parser.add_argument(
     "-d",
     "--device",
-    default="",
+    default="amd",
     type=str,
     help="Which device to use: cpu, cuda, xpu, mkldnn, opengl, opencl, ideep, hip, msnpu, xla, vulkan",
     dest="device",
@@ -151,20 +149,11 @@ def brain_segment(
     probability_array = np.zeros_like(padded_image, dtype=np.float32)
     sums = np.zeros_like(padded_image)
     pbar = tqdm()
-    print(list(Device.get_available_devices()))
     # segmenting by patches
     for completion, patches, indexes in gen_patches(
         padded_image, SIZE, OVERLAP, batch_size
     ):
-        with Tensor.test():
-            pred = model(
-                Tensor(
-                    patches.reshape(-1, 1, SIZE, SIZE, SIZE),
-                    dtype=dtypes.float32,
-                    device=dev,
-                    requires_grad=False,
-                )
-            ).numpy()
+        pred = model(Tensor(patches.reshape(-1, 1, SIZE, SIZE, SIZE), dtype=dtypes.float32, device=dev, requires_grad=False)).numpy()
         for i, ((iz, ez), (iy, ey), (ix, ex)) in enumerate(indexes):
             probability_array[iz:ez, iy:ey, ix:ex] += pred[i, 0]
             sums[iz:ez, iy:ey, ix:ex] += 1
@@ -182,83 +171,18 @@ def do_jit(net):
 
     return jit
 
-
-def to_vtk(
-    n_array: np.ndarray,
-    spacing: typing.Tuple[float, float, float] = (1.0, 1.0, 1.0),
-    slice_number: int = 0,
-    orientation: str = "AXIAL",
-    origin: typing.Tuple[float, float, float] = (0, 0, 0),
-    padding: typing.Tuple[float, float, float] = (0, 0, 0),
-) -> vtk.vtkImageData:
-    if orientation == "SAGITTAL":
-        orientation = "SAGITAL"
-
-    try:
-        dz, dy, dx = n_array.shape
-    except ValueError:
-        dy, dx = n_array.shape
-        dz = 1
-
-    px, py, pz = padding
-
-    v_image = numpy_support.numpy_to_vtk(n_array.flat)
-
-    if orientation == "AXIAL":
-        extent = (
-            0 - px,
-            dx - 1 - px,
-            0 - py,
-            dy - 1 - py,
-            slice_number - pz,
-            slice_number + dz - 1 - pz,
-        )
-    elif orientation == "SAGITAL":
-        dx, dy, dz = dz, dx, dy
-        extent = (
-            slice_number - px,
-            slice_number + dx - 1 - px,
-            0 - py,
-            dy - 1 - py,
-            0 - pz,
-            dz - 1 - pz,
-        )
-    elif orientation == "CORONAL":
-        dx, dy, dz = dx, dz, dy
-        extent = (
-            0 - px,
-            dx - 1 - px,
-            slice_number - py,
-            slice_number + dy - 1 - py,
-            0 - pz,
-            dz - 1 - pz,
-        )
-
-    # Generating the vtkImageData
-    image = vtk.vtkImageData()
-    image.SetOrigin(origin)
-    image.SetSpacing(spacing)
-    image.SetDimensions(dx, dy, dz)
-    # SetNumberOfScalarComponents and SetScalrType were replaced by
-    # AllocateScalars
-    #  image.SetNumberOfScalarComponents(1)
-    #  image.SetScalarType(numpy_support.get_vtk_array_type(n_array.dtype))
-    image.AllocateScalars(numpy_support.get_vtk_array_type(n_array.dtype), 1)
-    image.SetExtent(extent)
-    image.GetPointData().SetScalars(v_image)
-
-    image_copy = vtk.vtkImageData()
-    image_copy.DeepCopy(image)
-
-    return image_copy
-
-
-def image_save(image: np.ndarray, filename: str):
-    v_image = to_vtk(image)
-    writer = vtk.vtkXMLImageDataWriter()
-    writer.SetInputData(v_image)
-    writer.SetFileName(filename)
-    writer.Write()
+    
+def image_save_nifti(image: np.ndarray, filename: str, reference_nii: nb.Nifti1Image):
+    """Save image as NIfTI file, preserving header information from reference."""
+    # Create new NIfTI image with the same affine and header as the input
+    nii_img = nb.Nifti1Image(image, reference_nii.affine, reference_nii.header)
+    
+    # Update the data type in the header to match the output
+    nii_img.set_data_dtype(image.dtype)
+    
+    # Save the file
+    nb.save(nii_img, filename)
+    print(f"Saved output to: {filename}")
 
 
 def main():
@@ -288,7 +212,7 @@ def main():
     # probability_array = brain_segment(image, model, dev, 0.0, 1.0)
     model_jit = do_jit(model)
     probability_array = brain_segment(image, model_jit, device, mean, std, args.batch_size)
-    image_save(probability_array, str(output_file))
+    image_save_nifti(probability_array, str(output_file), nii_data)
 
 
 if __name__ == "__main__":

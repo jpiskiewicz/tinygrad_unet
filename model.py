@@ -5,7 +5,8 @@ import numpy as np
 from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_dict
 from tinygrad.nn.state import get_parameters
 
-SIZE = 48
+# TODO)) Figure out why 100 doesn't work
+SIZE = 64
 
 
 class BatchNorm3d:
