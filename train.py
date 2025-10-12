@@ -7,6 +7,7 @@ from tinygrad import nn
 from tinygrad.tensor import Tensor
 from tinygrad.nn.state import safe_save, get_state_dict, load_state_dict, safe_load
 from tinygrad.nn.optim import Adam
+from tinygrad.engine.jit import TinyJit
 from tqdm import tqdm
 from os import path
 import random
@@ -14,7 +15,7 @@ from model import Unet3D, SIZE
 import glob
 import json
 
-DATASET = "brain-tumor-segmentation-brats-2019/MICCAI_BraTS_2019_Data_Training/*GG/*"
+DATASET = "dataset/MICCAI_BraTS_2019_Data_Training/*GG/*"
 DEVICE = "amd"
 
 def choose_files(pattern):
@@ -115,14 +116,15 @@ class BrainMRIDataset:
         if self.augment:
             image_patch, label_patch = self.augment_data(image_patch, label_patch)
         
-        # Add channel dimension: (1, D, H, W)
-        image_patch = np.expand_dims(image_patch, axis=0)
-        label_patch = np.expand_dims(label_patch, axis=0)
+        # Add channel dimension and batch dimension (1, 1, D, H, W) and two other new dimensions to prepare for concat of
+        # image with label and another one before converting the dataset to tensor.
+        image_patch = image_patch[*[np.newaxis] * 4]
+        label_patch = label_patch[*[np.newaxis] * 4]
         
-        return image_patch, label_patch
+        return np.concatenate((image_patch, label_patch), axis=1)
 
 
-def dice_loss(pred, target, smooth=1e-5):
+def dice_loss(pred: Tensor, target: Tensor, smooth=1e-5) -> Tensor:
     """Dice loss for binary segmentation"""
     intersection = (pred * target).sum()
     union = pred.sum() + target.sum()
@@ -130,47 +132,54 @@ def dice_loss(pred, target, smooth=1e-5):
     return 1.0 - dice
 
 
-def dice_coefficient(pred, target, threshold=0.5, smooth=1e-5):
+def dice_coefficient(pred: Tensor, target: Tensor, threshold=0.5, smooth=1e-5) -> Tensor:
     """Dice coefficient metric"""
     pred_binary = (pred > threshold).float()
     intersection = (pred_binary * target).sum()
     union = pred_binary.sum() + target.sum()
     dice = (2.0 * intersection + smooth) / (union + smooth)
     return dice
-
+    
+    
+def convert_to_tensor(dataset: BrainMRIDataset) -> Tensor:
+    CHUNK_SIZE = 20
+    dataset_t = Tensor(dataset[0], device=DEVICE).realize()
+    for i in range((len(dataset) // CHUNK_SIZE) + 1):
+      start_idx = i*CHUNK_SIZE + 1
+      count = min(len(dataset) - start_idx, CHUNK_SIZE)
+      dataset_t = dataset_t.cat(*[Tensor(dataset[start_idx + x]) for x in range(count)]).realize()
+    return dataset_t
+    
 
 def train_epoch(model, dataset, optimizer):
     """Train for one epoch"""
+    indices = list(range(len(dataset)))
+    
+    # Augument and collect the samples before starting training in this epoch
+    # in order for JIT to work.
+    epoch_dataset = convert_to_tensor(dataset)
+    
+    random.shuffle(indices)
+    
     total_loss = 0.0
     total_dice = 0.0
     
-    indices = list(range(len(dataset)))
-    random.shuffle(indices)
-    
+    @TinyJit
+    def tiny_step(idx: int) -> tuple[Tensor, Tensor]:
+        image, label = epoch_dataset[idx]
+        pred = model(image)
+        loss = dice_loss(pred, label)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        dice = dice_coefficient(pred, label)
+        return loss, dice
+      
     with Tensor.train(True):
       for idx in tqdm(indices, desc="Training"):
-          image, label = dataset[idx]
-          
-          # Convert to tensors and add batch dimension
-          image_tensor = Tensor(image[np.newaxis, ...], device=DEVICE, requires_grad=False)
-          label_tensor = Tensor(label[np.newaxis, ...], device=DEVICE, requires_grad=False)
-          
-          # Forward pass
-          pred = model(image_tensor)
-          
-          # Calculate loss
-          loss = dice_loss(pred, label_tensor)
-          
-          # Backward pass
-          optimizer.zero_grad()
-          loss.backward()
-          optimizer.step()
-          
-          # Metrics
-          dice = dice_coefficient(pred, label_tensor)
-          
-          total_loss += loss.numpy()
-          total_dice += dice.numpy()
+        loss, dice = tiny_step(idx)
+        total_loss += loss.numpy()
+        total_dice += dice.numpy()
     
     avg_loss = total_loss / len(dataset)
     avg_dice = total_dice / len(dataset)
@@ -178,28 +187,21 @@ def train_epoch(model, dataset, optimizer):
     return avg_loss, avg_dice
 
 
-def validate(model, dataset):
+def validate(model: Unet3D, dataset: BrainMRIDataset) -> float:
     """Validate the model"""
-    Tensor.training = False
     total_dice = 0.0
     
-    for idx in tqdm(range(len(dataset)), desc="Validating"):
-        image, label = dataset[idx]
-        
-        # Convert to tensors and add batch dimension
-        image_tensor = Tensor(image[np.newaxis, ...], device=DEVICE, requires_grad=False)
-        label_tensor = Tensor(label[np.newaxis, ...], device=DEVICE, requires_grad=False)
-        
-        # Forward pass
-        pred = model(image_tensor)
-        
-        # Calculate dice
-        dice = dice_coefficient(pred, label_tensor)
-        total_dice += dice.numpy()
+    @TinyJit
+    def f(idx: int) -> Tensor:
+      image, label = dataset[idx]
+      pred = model(image)
+      return dice_coefficient(pred, label)
+      
+    with Tensor.train(False):
+      for idx in tqdm(range(len(dataset)), desc="Validating"): total_dice += f(idx).numpy()
+      
+    return total_dice / len(dataset)
     
-    avg_dice = total_dice / len(dataset)
-    return avg_dice
-
 
 def train(
     num_epochs=100,
@@ -218,7 +220,7 @@ def train(
     print("Loading training and validation data...")
     train_files, val_files = choose_files(DATASET)
     train_dataset = BrainMRIDataset(train_files, patch_size=patch_size, augment=True)
-    val_dataset = BrainMRIDataset(val_files, patch_size=patch_size, augment=False)
+    val_dataset = convert_to_tensor(BrainMRIDataset(val_files, patch_size=patch_size, augment=False))
     
     # Initialize model
     print("Initializing model...")
@@ -248,16 +250,15 @@ def train(
         print(f"Train Loss: {train_loss:.4f}, Train Dice: {train_dice:.4f}")
         
         # Validate
-        if val_dataset:
-            val_dice = validate(model, val_dataset)
-            print(f"Validation Dice: {val_dice:.4f}")
-            
-            # Save best model
-            if val_dice > best_dice:
-                best_dice = val_dice
-                save_path = checkpoint_dir / "best_model.safetensors"
-                print(f"Saving best model to {save_path}")
-                safe_save(get_state_dict(model), save_path)
+        val_dice = validate(model, val_dataset)
+        print(f"Validation Dice: {val_dice:.4f}")
+        
+        # Save best model
+        if val_dice > best_dice:
+            best_dice = val_dice
+            save_path = checkpoint_dir / "best_model.safetensors"
+            print(f"Saving best model to {save_path}")
+            safe_save(get_state_dict(model), save_path)
         
         # Save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
@@ -276,7 +277,7 @@ def train(
 if __name__ == '__main__':
     # Example usage
     train(
-        num_epochs=1000,
+        num_epochs=100,
         learning_rate=1e-5,
         patch_size=SIZE,
         checkpoint_dir='checkpoints',

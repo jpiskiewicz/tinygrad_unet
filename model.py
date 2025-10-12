@@ -6,7 +6,7 @@ from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_d
 from tinygrad.nn.state import get_parameters
 
 # TODO)) Figure out why 100 doesn't work
-SIZE = 64
+SIZE = 128
 
 
 class BatchNorm3d:
