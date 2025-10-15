@@ -6,7 +6,7 @@ import nibabel as nib
 from tinygrad import nn
 from tinygrad.tensor import Tensor
 from tinygrad.nn.state import safe_save, get_state_dict, load_state_dict, safe_load
-from tinygrad.nn.optim import Adam
+from tinygrad.nn.optim import Adam, Optimizer
 from tinygrad.engine.jit import TinyJit
 from tqdm import tqdm
 from os import path
@@ -150,6 +150,18 @@ def convert_to_tensor(dataset: BrainMRIDataset) -> Tensor:
       dataset_t = dataset_t.cat(*[Tensor(dataset[start_idx + x]) for x in range(count)]).realize()
     return dataset_t
     
+    
+@TinyJit
+def tiny_step(idx: int, dataset: Tensor, model: Unet3D, optimizer: Optimizer) -> tuple[Tensor, Tensor]:
+    image, label = dataset[idx]
+    pred = model(image)
+    loss = dice_loss(pred, label)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    dice = dice_coefficient(pred, label)
+    return loss, dice
+      
 
 def train_epoch(model, dataset, optimizer):
     """Train for one epoch"""
@@ -164,20 +176,9 @@ def train_epoch(model, dataset, optimizer):
     total_loss = 0.0
     total_dice = 0.0
     
-    @TinyJit
-    def tiny_step(idx: int) -> tuple[Tensor, Tensor]:
-        image, label = epoch_dataset[idx]
-        pred = model(image)
-        loss = dice_loss(pred, label)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        dice = dice_coefficient(pred, label)
-        return loss, dice
-      
     with Tensor.train(True):
       for idx in tqdm(indices, desc="Training"):
-        loss, dice = tiny_step(idx)
+        loss, dice = tiny_step(idx, epoch_dataset, model, optimizer)
         total_loss += loss.numpy()
         total_dice += dice.numpy()
     
@@ -243,7 +244,8 @@ def train(
     best_dice = 0.0
     
     for epoch in range(start_epoch, num_epochs):
-        print(f"\nEpoch {epoch+1}/{num_epochs}")
+        epoch_msg = f"\nEpoch {epoch+1}/{num_epochs}"
+        print(epoch_msg)
         
         # Train
         train_loss, train_dice = train_epoch(model, train_dataset, optimizer)
@@ -251,7 +253,9 @@ def train(
         
         # Validate
         val_dice = validate(model, val_dataset)
-        print(f"Validation Dice: {val_dice:.4f}")
+        val_msg = ", ".join([epoch_msg, f"Epoch Validation Dice: {val_dice:.4f}"])
+        print(val_msg)
+        with open("eval_scores.txt", "a") as f: f.write(val_msg)
         
         # Save best model
         if val_dice > best_dice:
@@ -277,8 +281,8 @@ def train(
 if __name__ == '__main__':
     # Example usage
     train(
-        num_epochs=100,
-        learning_rate=1e-5,
+        num_epochs=50,
+        learning_rate=1e-4,
         patch_size=SIZE,
         checkpoint_dir='checkpoints',
         resume_from=None

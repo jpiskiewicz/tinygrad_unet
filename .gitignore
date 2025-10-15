@@ -4,3 +4,4 @@ dataset
 validation_files.json
 __pycache__
 output.nii
+eval_scores.txt
